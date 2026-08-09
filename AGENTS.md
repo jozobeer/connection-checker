@@ -1,23 +1,20 @@
 # 接続情報チェッカー
 
-このリポジトリは kojo が生成した Web アプリです（React UI + Hono API）。
+kojo が生成した Web アプリ（React UI + Hono API）。ページ表示時に `GET /api/whoami` でグローバル IP・接続元の国・送信ヘッダを取得して表示し、IP をクリップボードへコピーできる。状態なし API（バインディング・外部 API・永続化なし）。精密位置・ポート開放・履歴は対象外。
 
-## アイデア
+## 構成（実装）
 
-# 接続情報チェッカー
-
-自分のグローバルIPアドレス・接続元の国・ブラウザが実際に送っているHTTPヘッダを、サーバ側API（/api/whoami）で取得して表示するアプリ。
-
-## 意図
-
-VPNの接続確認や回線切替・IP申請のたびに「今の自分のグローバルIP」を確かめたい人が、開いた瞬間に見るための道具。グローバルIPはサーバに聞かないと分からない（クライアント単体では取得不能）ことがサーバAPIの存在理由。表示とコピーに絞り、精密位置情報・ポート開放チェック・履歴保存はやらない。
-
-## 受け入れ条件の種
-
-- ページを開くと /api/whoami が返すグローバルIPアドレスが自動で表示される
-- 接続元の国と主要な送信ヘッダ（User-Agent・Accept-Language など）が一覧表示される（判定できない項目はその旨を表示する）
-- IPアドレスをボタン一つでクリップボードにコピーできる
-
+- **UI 正本**: `index.html` + `src/ui/`
+  - `App.tsx` — マウント時に `/api/whoami` を fetch。`loading | loaded | error`。不通時もタイトル骨格を維持
+  - `IpCard.tsx` — IP 表示とコピー（成功時「コピーしました」）
+  - `InfoRow.tsx` — 国など 1 行表示（`null` → 「不明」）
+  - `HeaderList.tsx` — ヘッダ名/値のテーブル
+  - `public/index.html` は `npm run build` の単一ファイル出力（直接編集しない）
+- **API**: `src/worker/index.ts`（Hono）
+  - `GET /api/health` → `{ ok: true }`
+  - `GET /api/whoami` → `buildWhoami(req)` が返す `{ ip, country, headers }`（不足時は `null` で 200）
+  - IP: `CF-Connecting-IP` / 国: `CF-IPCountry`（`XX`・`T1` は不明として `null`）/ ヘッダ: 受信ヘッダから `cf-*` を除外
+- **テスト**: `tests/unit/*.test.ts`（vitest）、`tests/app.spec.ts`（Playwright）。雛形のスモークと health テストは削除しない
 
 ## 技術スタック（不変）
 
@@ -26,17 +23,12 @@ VPNの接続確認や回線切替・IP申請のたびに「今の自分のグロ
 - 配信: Cloudflare Workers（main=`src/worker/index.ts`、assets=`public/`、/api/* が Worker に落ちる）
 - 保守時もこのスタックを維持すること。フレームワーク・ビルドツール・宣言外ライブラリの導入は禁止
 
-## 制約
+## 品質不変条件
 
-- サーバは src/worker/index.ts の Hono アプリ。/api/* の JSON のみを提供し、HTML を返さない
-- バインディング（KV/D1/DO）・外部 API・サーバ側の永続化は使わない（状態なし API）
-- GET /api/health は 200 と {"ok":true} を返し続けること（機械検証が依存。壊さない）
-- UI は API に到達できなくても骨格（タイトル・フッター）を描画すること（視覚検証は file:// で行われる）
-- 受け入れ条件のテスト: API/ロジックは tests/unit/*.test.ts（vitest）、ブラウザ挙動は tests/app.spec.ts（Playwright）に書く
-- PLAN.md の受け入れ条件それぞれに対応するテストを書き、`npm test` が通ること。API/ロジックは `tests/unit/*.test.ts`（vitest）、ブラウザ挙動は `tests/app.spec.ts`（Playwright）。雛形のスモークテストと health テストは削除しない
-- UI の正本は `index.html` と `src/ui/`。`public/` は `npm run build` の出力なので直接編集しない
-- favicon は `index.html` の `<head>` に `<link rel="icon" href="data:image/svg+xml,...">` のインライン data URI で含める（外部ファイル・外部URL不可。アプリのテーマに合った絵柄にする）
-- hub（apps.jozo.beer）へのフッター導線は `index.html` の React ルート（`#root`）の外に置く（JS が読めない環境でも描画されるため）。マークアップは次のとおり固定する:
+壊したら公開・検証が落ちる。変更後は必ず `npm run verify` が通る状態を維持すること。
+
+- **favicon**: `index.html` の `<head>` に `<link rel="icon" href="data:image/svg+xml,...">` のインライン data URI（外部ファイル・外部 URL 不可）
+- **hub フッター**: React ルート（`#root`）の外に置く（JS が読めない環境でも描画される）。リンク先 `https://apps.jozo.beer` とリンクテキスト `apps.jozo.beer` は変えない。スタイルはテーマに合わせてよいが、背景とのコントラストを確保する
 
   ```html
   <footer style="margin-top:3rem;text-align:center;font-size:.8rem;opacity:.6">
@@ -44,7 +36,18 @@ VPNの接続確認や回線切替・IP申請のたびに「今の自分のグロ
   </footer>
   ```
 
-  スタイル（リンク色を含む）はアプリのテーマに合わせて調整してよいが、リンク先 `https://apps.jozo.beer` とリンクテキスト `apps.jozo.beer` は変えない。リンク色を変える場合は背景とのコントラストを確保すること
-- README.md はテンプレートが生成済み。削除しないこと
-- apple-touch-icon / manifest / og-image / robots / sitemap は factory が公開時に自動生成するため、builder は書かない
-- 完成条件: PLAN.md の受け入れ条件をすべて満たし、`npm run verify` と `npm test` が通ること
+- **API 契約**: `/api/*` は JSON のみ（HTML を返さない）。`GET /api/health` は 200 と `{"ok":true}` を維持。バインディング・外部 API・サーバ側永続化は使わない
+- **UI 骨格**: API 不通（file:// 含む）でもタイトルとフッターを描画する
+- **README.md** は削除しない。apple-touch-icon / manifest / og-image / robots / sitemap は公開基盤が生成するため、アプリ側では書かない
+
+## 保守の進め方
+
+1. 変更前に受け入れ条件をテストにする（API/ロジックは `tests/unit/*.test.ts`、ブラウザ挙動は `tests/app.spec.ts`）
+2. 実装する（スタック不変・品質不変条件を守る）
+3. `npm test` で通す（必要なら `npm run verify` も）
+4. `git commit` & `git push`
+5. `npm run deploy`
+
+## ドキュメントの正
+
+`PLAN.md` は初回実装時の計画（歴史的文書）である。現状の正は **README.md** と **テスト**（`tests/`）とする。仕様の根拠はテストと README を優先し、PLAN と食い違う場合はテスト/README に従う。
