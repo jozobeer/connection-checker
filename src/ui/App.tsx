@@ -10,6 +10,49 @@ type LoadState =
   | { status: "loaded"; data: WhoamiResponse }
   | { status: "error"; message: string };
 
+function Guide() {
+  return (
+    <div className="guide">
+      <section className="guide__section" aria-labelledby="how-to-heading">
+        <h2 id="how-to-heading" className="guide__title">
+          使い方
+        </h2>
+        <ol className="guide__steps">
+          <li>
+            ページを開きます。操作は不要で、表示と同時に接続情報を取得します。
+          </li>
+          <li>
+            グローバルIPと接続元の国を確認します。判定できないときは「不明」と出ます。
+          </li>
+          <li>コピーボタンでIPをクリップボードへ貼り付けできます。</li>
+          <li>
+            送信ヘッダの表で、ブラウザが送ったヘッダを確認できます。
+          </li>
+        </ol>
+      </section>
+      <section className="guide__section" aria-labelledby="faq-heading">
+        <h2 id="faq-heading" className="guide__title">
+          よくある質問
+        </h2>
+        <h3 className="guide__q">表示されるIPは何ですか？</h3>
+        <p className="guide__a">
+          いまインターネットへ出ている出口のグローバルIPです。VPNや回線を切り替えたあとの確認に使えます。
+        </p>
+        <h3 className="guide__q">
+          接続元の国が「不明」になるのはなぜですか？
+        </h3>
+        <p className="guide__a">
+          国を判定できないときです。Tor経由などは不明になります。このアプリが位置を推定することはありません。
+        </p>
+        <h3 className="guide__q">住所や過去の接続履歴は分かりますか？</h3>
+        <p className="guide__a">
+          分かりません。国コードまでで、精密な位置も履歴も扱いません。ページを開いた瞬間の情報だけを表示します。
+        </p>
+      </section>
+    </div>
+  );
+}
+
 function isWhoamiResponse(value: unknown): value is WhoamiResponse {
   if (typeof value !== "object" || value === null) return false;
   const v = value as Record<string, unknown>;
@@ -79,6 +122,8 @@ export function App() {
           <HeaderList headers={state.data.headers} />
         </div>
       ) : null}
+
+      <Guide />
     </main>
   );
 }

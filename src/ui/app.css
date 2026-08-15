@@ -244,6 +244,47 @@ body {
   color: var(--text);
 }
 
+.guide {
+  margin-top: 2.5rem;
+  padding-top: 1.75rem;
+  border-top: 1px solid var(--bg-panel-edge);
+}
+
+.guide__section + .guide__section {
+  margin-top: 1.75rem;
+}
+
+.guide__title {
+  margin: 0 0 0.75rem;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.guide__steps {
+  margin: 0;
+  padding-left: 1.2rem;
+  color: var(--text-muted);
+  font-size: 0.92rem;
+  line-height: 1.65;
+}
+
+.guide__steps li + li {
+  margin-top: 0.35rem;
+}
+
+.guide__q {
+  margin: 1rem 0 0.35rem;
+  font-size: 0.92rem;
+  font-weight: 550;
+}
+
+.guide__a {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+
 @media (max-width: 480px) {
   .info-row {
     grid-template-columns: 1fr;

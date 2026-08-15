@@ -100,6 +100,65 @@ test("APIに到達できなくてもタイトルとフッターが描画され�
   await expect(page.getByTestId("fetch-error")).toBeVisible();
 });
 
+function jsonLdNodes(value: unknown): Record<string, unknown>[] {
+  if (Array.isArray(value)) {
+    return value.flatMap(jsonLdNodes);
+  }
+  if (typeof value !== "object" || value === null) {
+    return [];
+  }
+  const node = value as Record<string, unknown>;
+  const nested = node["@graph"] !== undefined ? jsonLdNodes(node["@graph"]) : [];
+  return [node, ...nested];
+}
+
+test("公開HTMLに空でない meta description がある", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator('meta[name="description"]')).toHaveAttribute(
+    "content",
+    /\S/,
+  );
+});
+
+test("JSON-LD に WebApplication の必須フィールドがある", async ({ page }) => {
+  await page.goto("/");
+  const scripts = await page
+    .locator('script[type="application/ld+json"]')
+    .allTextContents();
+  expect(scripts.length).toBeGreaterThan(0);
+
+  const nodes = scripts.flatMap((text) => jsonLdNodes(JSON.parse(text)));
+  const app = nodes.find((node) => {
+    const type = node["@type"];
+    const types = Array.isArray(type) ? type : [type];
+    return types.includes("WebApplication");
+  });
+
+  expect(app).toBeDefined();
+  expect(String(app?.name ?? "").trim()).not.toBe("");
+  expect(String(app?.description ?? "").trim()).not.toBe("");
+  expect(String(app?.url ?? "").trim()).not.toBe("");
+  expect(String(app?.applicationCategory ?? "").trim()).not.toBe("");
+
+  const offers = app?.offers;
+  const offerList = Array.isArray(offers) ? offers : [offers];
+  const hasFreePrice = offerList.some(
+    (offer) =>
+      typeof offer === "object" &&
+      offer !== null &&
+      String((offer as Record<string, unknown>).price) === "0",
+  );
+  expect(hasFreePrice).toBe(true);
+});
+
+test("使い方とよくある質問の見出しがDOM上にある", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "使い方" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "よくある質問" }),
+  ).toBeVisible();
+});
+
 test("GET /api/whoami が IP・国・ヘッダを含む JSON を 200 で返す", async ({
   request,
 }) => {
