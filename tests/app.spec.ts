@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 // 雛形スモーク。builder は受け入れ条件ごとの機能テストをこのファイルに追記する（雛形は削除しない）
 test("ページがロードできてページエラーがない", async ({ page }) => {
@@ -170,4 +170,117 @@ test("GET /api/whoami が IP・国・ヘッダを含む JSON を 200 で返す",
   expect(body.ip === null || typeof body.ip === "string").toBe(true);
   expect(body.country === null || typeof body.country === "string").toBe(true);
   expect(Array.isArray(body.headers)).toBe(true);
+});
+
+const whoamiFirst = {
+  ip: "203.0.113.5",
+  country: "JP",
+  headers: [
+    { name: "user-agent", value: "PlaywrightTest/1.0" },
+    { name: "accept-language", value: "ja,en;q=0.8" },
+  ],
+};
+
+const whoamiChanged = {
+  ip: "198.51.100.7",
+  country: "US",
+  headers: [{ name: "user-agent", value: "PlaywrightTest/2.0" }],
+};
+
+async function stubWhoamiSequence(
+  page: Page,
+  responses: Array<object | "abort">,
+) {
+  let i = 0;
+  await page.route("**/api/whoami", async (route) => {
+    const next = responses[Math.min(i, responses.length - 1)];
+    i += 1;
+    if (next === "abort") {
+      await route.abort();
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(next),
+    });
+  });
+}
+
+test("再取得すると新しいIP・国を表示し前回からの変化を示す", async ({
+  page,
+}) => {
+  await stubWhoamiSequence(page, [whoamiFirst, whoamiChanged]);
+
+  await page.goto("/");
+  await expect(page.getByTestId("ip-address")).toHaveText("203.0.113.5");
+
+  await page.getByRole("button", { name: "再取得" }).click();
+
+  await expect(page.getByTestId("ip-address")).toHaveText("198.51.100.7");
+  await expect(page.getByTestId("info-接続元の国")).toHaveText("US");
+  await expect(page.getByTestId("ip-change")).toHaveText(
+    "IPが変わりました（前回 203.0.113.5）",
+  );
+  await expect(page.getByTestId("country-change")).toHaveText(
+    "国が変わりました（前回 JP）",
+  );
+});
+
+test("再取得してもIPと国が同じなら変化なしと示す", async ({ page }) => {
+  await stubWhoamiSequence(page, [whoamiFirst, whoamiFirst]);
+
+  await page.goto("/");
+  await expect(page.getByTestId("ip-address")).toHaveText("203.0.113.5");
+
+  await page.getByRole("button", { name: "再取得" }).click();
+
+  await expect(page.getByTestId("ip-address")).toHaveText("203.0.113.5");
+  await expect(page.getByTestId("ip-change")).toHaveText("変化なし");
+  await expect(page.getByTestId("country-change")).toHaveText("変化なし");
+});
+
+test("比較は初回取得直後とリロード後には出ない", async ({ page }) => {
+  await stubWhoamiSequence(page, [whoamiFirst, whoamiChanged]);
+
+  await page.goto("/");
+  await expect(page.getByTestId("ip-address")).toHaveText("203.0.113.5");
+  await expect(page.getByTestId("ip-change")).toHaveCount(0);
+  await expect(page.getByTestId("country-change")).toHaveCount(0);
+
+  await page.getByRole("button", { name: "再取得" }).click();
+  await expect(page.getByTestId("ip-change")).toHaveCount(1);
+  await expect(page.getByTestId("country-change")).toHaveCount(1);
+
+  await page.reload();
+  await expect(page.getByTestId("ip-change")).toHaveCount(0);
+  await expect(page.getByTestId("country-change")).toHaveCount(0);
+  await expect(page.getByText("IPが変わりました")).toHaveCount(0);
+});
+
+test("再取得が失敗しても直前の表示を残し比較は出さない", async ({ page }) => {
+  await stubWhoamiSequence(page, [whoamiFirst, "abort"]);
+
+  await page.goto("/");
+  await expect(page.getByTestId("ip-address")).toHaveText("203.0.113.5");
+  await expect(page.getByTestId("info-接続元の国")).toHaveText("JP");
+  await expect(page.getByTestId("header-list")).toBeVisible();
+  await expect(page.getByTestId("header-list")).toContainText("user-agent");
+  await expect(page.getByTestId("header-list")).toContainText(
+    "PlaywrightTest/1.0",
+  );
+
+  await page.getByRole("button", { name: "再取得" }).click();
+
+  await expect(page.getByTestId("ip-address")).toHaveText("203.0.113.5");
+  await expect(page.getByTestId("info-接続元の国")).toHaveText("JP");
+  await expect(page.getByTestId("header-list")).toBeVisible();
+  await expect(page.getByTestId("header-list")).toContainText(
+    "PlaywrightTest/1.0",
+  );
+  await expect(page.getByTestId("fetch-error")).toHaveText(
+    "接続情報を取得できませんでした",
+  );
+  await expect(page.getByTestId("ip-change")).toHaveCount(0);
+  await expect(page.getByTestId("country-change")).toHaveCount(0);
 });

@@ -5,10 +5,23 @@ import { IpCard } from "./IpCard";
 import type { WhoamiResponse } from "./types";
 import "./app.css";
 
+type Snapshot = {
+  ip: WhoamiResponse["ip"];
+  country: WhoamiResponse["country"];
+};
+
 type LoadState =
   | { status: "loading" }
-  | { status: "loaded"; data: WhoamiResponse }
-  | { status: "error"; message: string };
+  | { status: "error"; message: string }
+  | {
+      status: "loaded";
+      current: WhoamiResponse;
+      previous: Snapshot | null;
+      refreshing: boolean;
+      refreshError: string | null;
+    };
+
+const FETCH_ERROR_MESSAGE = "接続情報を取得できませんでした";
 
 function Guide() {
   return (
@@ -28,6 +41,7 @@ function Guide() {
           <li>
             送信ヘッダの表で、ブラウザが送ったヘッダを確認できます。
           </li>
+          <li>回線や VPN を切り替えたら再取得を押します。</li>
         </ol>
       </section>
       <section className="guide__section" aria-labelledby="faq-heading">
@@ -46,7 +60,7 @@ function Guide() {
         </p>
         <h3 className="guide__q">住所や過去の接続履歴は分かりますか？</h3>
         <p className="guide__a">
-          分かりません。国コードまでで、精密な位置も履歴も扱いません。ページを開いた瞬間の情報だけを表示します。
+          分かりません。国コードまでで、精密な位置も履歴も扱いません。表示はいまの取得結果と、再取得したときの直前1件との比較だけです。
         </p>
       </section>
     </div>
@@ -63,25 +77,51 @@ function isWhoamiResponse(value: unknown): value is WhoamiResponse {
   );
 }
 
+async function fetchWhoami(): Promise<WhoamiResponse> {
+  const res = await fetch("/api/whoami");
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const json: unknown = await res.json();
+  if (!isWhoamiResponse(json)) throw new Error("unexpected response");
+  return json;
+}
+
+function ipChangeText(previous: string | null, current: string | null): string {
+  if (previous === current) return "変化なし";
+  return `IPが変わりました（前回 ${previous ?? "判定できません"}）`;
+}
+
+function countryChangeText(
+  previous: string | null,
+  current: string | null,
+): string {
+  if (previous === current) return "変化なし";
+  return `国が変わりました（前回 ${previous ?? "不明"}）`;
+}
+
 export function App() {
   const [state, setState] = useState<LoadState>({ status: "loading" });
 
   useEffect(() => {
     let cancelled = false;
 
-    fetch("/api/whoami")
-      .then(async (res) => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const json: unknown = await res.json();
-        if (!isWhoamiResponse(json)) throw new Error("unexpected response");
-        if (!cancelled) setState({ status: "loaded", data: json });
+    fetchWhoami()
+      .then((json) => {
+        if (!cancelled) {
+          setState({
+            status: "loaded",
+            current: json,
+            previous: null,
+            refreshing: false,
+            refreshError: null,
+          });
+        }
       })
       .catch(() => {
         // file:// や API 停止でもタイトル骨格は描画し続ける
         if (!cancelled) {
           setState({
             status: "error",
-            message: "接続情報を取得できませんでした",
+            message: FETCH_ERROR_MESSAGE,
           });
         }
       });
@@ -90,6 +130,41 @@ export function App() {
       cancelled = true;
     };
   }, []);
+
+  async function handleRefresh() {
+    if (state.status !== "loaded" || state.refreshing) return;
+
+    setState((prev) => {
+      if (prev.status !== "loaded") return prev;
+      return { ...prev, refreshing: true, refreshError: null };
+    });
+
+    try {
+      const json = await fetchWhoami();
+      setState((prev) => {
+        if (prev.status !== "loaded") return prev;
+        return {
+          status: "loaded",
+          current: json,
+          previous: {
+            ip: prev.current.ip,
+            country: prev.current.country,
+          },
+          refreshing: false,
+          refreshError: null,
+        };
+      });
+    } catch {
+      setState((prev) => {
+        if (prev.status !== "loaded") return prev;
+        return {
+          ...prev,
+          refreshing: false,
+          refreshError: FETCH_ERROR_MESSAGE,
+        };
+      });
+    }
+  }
 
   return (
     <main className="app">
@@ -114,13 +189,45 @@ export function App() {
       ) : null}
 
       {state.status === "loaded" ? (
-        <div className="app__body">
-          <IpCard ip={state.data.ip} />
-          <dl className="app__meta">
-            <InfoRow label="接続元の国" value={state.data.country} />
-          </dl>
-          <HeaderList headers={state.data.headers} />
-        </div>
+        <>
+          <button
+            type="button"
+            className="app__refresh"
+            onClick={handleRefresh}
+            disabled={state.refreshing}
+          >
+            再取得
+          </button>
+          {state.refreshError ? (
+            <p className="app__error" role="alert" data-testid="fetch-error">
+              {state.refreshError}
+            </p>
+          ) : null}
+          <div className="app__body">
+            <div>
+              <IpCard ip={state.current.ip} />
+              {state.previous ? (
+                <p className="app__change" data-testid="ip-change">
+                  {ipChangeText(state.previous.ip, state.current.ip)}
+                </p>
+              ) : null}
+            </div>
+            <div>
+              <dl className="app__meta">
+                <InfoRow label="接続元の国" value={state.current.country} />
+              </dl>
+              {state.previous ? (
+                <p className="app__change" data-testid="country-change">
+                  {countryChangeText(
+                    state.previous.country,
+                    state.current.country,
+                  )}
+                </p>
+              ) : null}
+            </div>
+            <HeaderList headers={state.current.headers} />
+          </div>
+        </>
       ) : null}
 
       <Guide />
